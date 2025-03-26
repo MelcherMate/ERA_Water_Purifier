@@ -20,7 +20,7 @@ COUNT_DISCRETE_INPUTS = 125
 def decode_registers(registers):
     try:
         decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=Endian.Big)
-        decoded_value = decoder.decode_32bit_float()  # Adjust based on PLC data format
+        decoded_value = decoder.decode_16bit_int  # Adjust based on PLC data format
         return decoded_value
     except Exception as e:
         return f"Decoding error: {e}"
