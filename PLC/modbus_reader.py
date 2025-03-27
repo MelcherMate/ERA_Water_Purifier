@@ -44,7 +44,7 @@ while len(registers) < total_sensors:
     address += count
 
 # Now we have all the registers, we can process them
-print("Raw register values:", registers)
+# print("Raw register values:", registers)
 
 # Iterate through the rows of the Excel sheet
 for i, row in df.iterrows():
