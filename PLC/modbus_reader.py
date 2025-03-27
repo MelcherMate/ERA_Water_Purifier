@@ -3,11 +3,14 @@ from pymodbus.client import ModbusTcpClient
 import struct
 import os
 
-# Get the script's directory path
+# Get the parent directory of the current script (PLC folder)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Go one level up to reach the parent directory
+parent_dir = os.path.dirname(script_dir)
+
 # Define the Excel file's relative path (it's inside the RegisterList folder)
-file_path = os.path.join(script_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
+file_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
 
 # Load the Excel file
 df = pd.read_excel(file_path, engine='openpyxl')
@@ -15,6 +18,7 @@ df = pd.read_excel(file_path, engine='openpyxl')
 # Connect to the Modbus server
 client = ModbusTcpClient('10.20.16.100', port=502)
 client.connect()
+
 
 # The total number of sensors you want to read (252 sensors)
 total_sensors = 252
