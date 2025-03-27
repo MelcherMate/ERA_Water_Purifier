@@ -1,96 +1,61 @@
-import time
+import pandas as pd
 from pymodbus.client import ModbusTcpClient
-from pymodbus.payload import BinaryPayloadDecoder
-from pymodbus.constants import Endian
+import struct
+import os
 
 # Configuration parameters
 PLC_IP = "10.20.16.100"  # PLC IP address
 PLC_PORT = 502           # Modbus TCP port
 
-# Modbus register configurations
-START_ADDRESS_HOLDING_REGISTERS = 0
-COUNT_HOLDING_REGISTERS = 125
-START_ADDRESS_INPUT_REGISTERS = 0
-COUNT_INPUT_REGISTERS = 125
-START_ADDRESS_COILS = 0
-COUNT_COILS = 125
-START_ADDRESS_DISCRETE_INPUTS = 0
-COUNT_DISCRETE_INPUTS = 125
+# Load register mapping from Excel file
+base_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(base_dir, "..", "RegisterList", "PanelKOVK_KommRef.xlsx")
+df = pd.read_excel(file_path, sheet_name="Komm. ref.")
 
-def decode_registers(registers):
+# Create Modbus client
+client = ModbusTcpClient(PLC_IP, port=PLC_PORT)
+
+def convert_value(data, data_type):
+    """Converts raw Modbus register data to the correct data type."""
+    if data_type == "BOOL":
+        return bool(data)
+    elif data_type == "INT":
+        return int(data)
+    elif data_type == "FLOAT":
+        packed = struct.pack('>HH', data[0], data[1])  # Big-endian float conversion
+        return struct.unpack('>f', packed)[0]
+    return data
+
+# Connect to PLC
+if client.connect():
+    print("Connected to PLC")
     try:
-        decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=Endian.Big)
-        decoded_value = decoder.decode_16bit_int  # Adjust based on PLC data format
-        return decoded_value
+        for index, row in df.iterrows():
+            try:
+                address = int(row["Value"])  # Modbus register address
+            except ValueError:
+                print(f"Skipping non-numeric address: {row['Value']}")
+                continue
+            
+            data_type = row["Type"]    # Data type
+            bit_pos = row["Bit"] if "Bit" in row and not pd.isna(row["Bit"]) else None
+            
+            response = client.read_holding_registers(address=address, count=2 if data_type == "FLOAT" else 1)
+            if response.isError():
+                print(f"Error reading register {address}")
+                continue
+            
+            value = response.registers
+            if bit_pos is not None:
+                value = (value[0] >> int(bit_pos)) & 1
+            else:
+                value = convert_value(value, data_type)
+            
+            print(f"{row['Value']}: {value}")
     except Exception as e:
-        return f"Decoding error: {e}"
-
-def read_holding_registers(client, start_address, count):
-    try:
-        result = client.read_holding_registers(address=start_address, count=count)
-        print(f"\nHolding Registers ({start_address} - {start_address + count - 1}):")
-        if not result.isError():
-            print(f"Raw response: {result.registers}")
-            decoded_value = decode_registers(result.registers)
-            print(f"Decoded: {decoded_value}")
-        else:
-            print(f"Error reading holding registers: {result}")
-    except Exception as e:
-        print(f"Error reading holding registers: {e}")
-
-def read_input_registers(client, start_address, count):
-    try:
-        result = client.read_input_registers(address=start_address, count=count)
-        print(f"\nInput Registers ({start_address} - {start_address + count - 1}):")
-        if not result.isError():
-            print(f"Raw response: {result.registers}")
-            decoded_value = decode_registers(result.registers)
-            print(f"Decoded: {decoded_value}")
-        else:
-            print(f"Error reading input registers: {result}")
-    except Exception as e:
-        print(f"Error reading input registers: {e}")
-
-def read_coils(client, start_address, count):
-    try:
-        result = client.read_coils(address=start_address, count=count)
-        if not result.isError():
-            print(f"\nCoils ({start_address} - {start_address + count - 1}): {result.bits}")
-        else:
-            print(f"Error reading coils: {result}")
-    except Exception as e:
-        print(f"Error reading coils: {e}")
-
-def read_discrete_inputs(client, start_address, count):
-    try:
-        result = client.read_discrete_inputs(address=start_address, count=count)
-        if not result.isError():
-            print(f"\nDiscrete Inputs ({start_address} - {start_address + count - 1}): {result.bits}")
-        else:
-            print(f"Error reading discrete inputs: {result}")
-    except Exception as e:
-        print(f"Error reading discrete inputs: {e}")
-
-if __name__ == "__main__":
-    print(f"Connecting to PLC at {PLC_IP}:{PLC_PORT}...")
-    client = ModbusTcpClient(host=PLC_IP, port=PLC_PORT)
-
-    try:
-        if client.connect():
-            print("Connection successful!")
-            while True:
-                print("\n--- Reading Modbus Data ---")
-                read_holding_registers(client, START_ADDRESS_HOLDING_REGISTERS, COUNT_HOLDING_REGISTERS)
-                read_input_registers(client, START_ADDRESS_INPUT_REGISTERS, COUNT_INPUT_REGISTERS)
-                read_coils(client, START_ADDRESS_COILS, COUNT_COILS)
-                read_discrete_inputs(client, START_ADDRESS_DISCRETE_INPUTS, COUNT_DISCRETE_INPUTS)
-                time.sleep(1)
-        else:
-            print("Failed to connect to PLC.")
-    except KeyboardInterrupt:
-        print("\nUser interrupted the program. Exiting...")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+        print("Error:", e)
     finally:
-        if client.is_socket_open():
-            client.close()
+        client.close()
+        print("Connection closed")
+else:
+    print("Failed to connect to PLC")
