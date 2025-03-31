@@ -20,15 +20,15 @@ client = ModbusTcpClient('10.20.16.100', port=502)
 client.connect()
 
 
-# The total number of sensors you want to read (252 sensors)
-total_sensors = 252
+# The total number of registers you want to read (252 registers)
+total_registers = 252
 
 # Read Modbus registers in chunks of 100 registers at a time
-registers = []
+registers_data = []
 address = 0
 count = 100  # Number of registers to read per request
 
-while len(registers) < total_sensors:
+while len(registers_data) < total_registers:
     # Read the registers
     response = client.read_holding_registers(address=address, count=count)
 
@@ -38,74 +38,74 @@ while len(registers) < total_sensors:
         break
     else:
         # Add the registers to the list
-        registers.extend(response.registers)
+        registers_data.extend(response.registers)
 
     # Update the address to read the next chunk of registers
     address += count
 
 # Now we have all the registers, we can process them
-# print("Raw register values:", registers)
+# print("Raw register values:", registers_data)
 
 # Iterate through the rows of the Excel sheet
 for i, row in df.iterrows():
-    if i >= len(registers):  # Stop if we reach the end of the available registers
+    if i >= len(registers_data):  # Stop if we reach the end of the available registers
         break
-    
-    variable = row['Variable']
+
+    channel_id = row['channel_id']  # Use the column name 'channel_id'
     type_ = row['Type']
     description = row['Description']  # Get the description from the table
     dimension = row['Dimension'] if 'Dimension' in row else 'N/A'  # Get the dimension from the table (if exists)
-    modbus_register = registers[i]  # Get the corresponding register value
+    modbus_register_value = registers_data[i]  # Get the corresponding register value
 
     # Interpret the data based on its type
     if type_ == 'BOOL':
         # If BOOL, then return true/false
-        value = bool(modbus_register)
-        print(f"Sensor {i+1} ({variable}): {value} - Description: {description} - Dimension: {dimension}")
+        value = bool(modbus_register_value)
+        print(f"Register {i+1} ({channel_id}): {value} - Description: {description} - Dimension: {dimension}")
     elif type_ == 'INT':
         # If INT, then return the integer value (e.g. 0, 1, 2)
-        value = modbus_register
-        print(f"Sensor {i+1} ({variable}): {value} - Description: {description} - Dimension: {dimension}")
+        value = modbus_register_value
+        print(f"Register {i+1} ({channel_id}): {value} - Description: {description} - Dimension: {dimension}")
     elif type_ == 'BIT':
         # If BIT, then check the bit (0 or 1)
-        value = modbus_register & 1  # Checking the first bit
-        print(f"Sensor {i+1} ({variable}): {value} - Description: {description} - Dimension: {dimension}")
+        value = modbus_register_value & 1  # Checking the first bit
+        print(f"Register {i+1} ({channel_id}): {value} - Description: {description} - Dimension: {dimension}")
     elif type_ == 'UDINT':
         # If UDINT (unsigned 32-bit), combine four 16-bit registers
-        if len(registers) > i + 3:  # Ensure there are enough registers
-            reg1 = registers[i]
-            reg2 = registers[i + 1]
-            reg3 = registers[i + 2]
-            reg4 = registers[i + 3]
+        if len(registers_data) > i + 3:  # Ensure there are enough registers
+            reg1 = registers_data[i]
+            reg2 = registers_data[i + 1]
+            reg3 = registers_data[i + 2]
+            reg4 = registers_data[i + 3]
             # Combine the four registers to form the 32-bit UDINT
             udint_value = (reg4 << 24) | (reg3 << 16) | (reg2 << 8) | reg1
-            print(f"Sensor {i+1} ({variable}): {udint_value} - Description: {description} - Dimension: {dimension}")
+            print(f"Register {i+1} ({channel_id}): {udint_value} - Description: {description} - Dimension: {dimension}")
     elif type_ == 'LREAL':
         # If LREAL (64-bit floating point), combine eight 16-bit registers
-        if len(registers) > i + 7:  # Ensure there are enough registers
-            reg1 = registers[i]
-            reg2 = registers[i + 1]
-            reg3 = registers[i + 2]
-            reg4 = registers[i + 3]
-            reg5 = registers[i + 4]
-            reg6 = registers[i + 5]
-            reg7 = registers[i + 6]
-            reg8 = registers[i + 7]
+        if len(registers_data) > i + 7:  # Ensure there are enough registers
+            reg1 = registers_data[i]
+            reg2 = registers_data[i + 1]
+            reg3 = registers_data[i + 2]
+            reg4 = registers_data[i + 3]
+            reg5 = registers_data[i + 4]
+            reg6 = registers_data[i + 5]
+            reg7 = registers_data[i + 6]
+            reg8 = registers_data[i + 7]
             # Combine the eight registers to form the 64-bit LREAL
             combined = (reg8 << 48) | (reg7 << 32) | (reg6 << 16) | (reg5)
             combined |= (reg4 << 56) | (reg3 << 40) | (reg2 << 24) | (reg1 << 8)
             # Convert the 64-bit combined value into a floating point number
             lreal_value = struct.unpack('>d', struct.pack('>Q', combined))[0]
-            print(f"Sensor {i+1} ({variable}): {lreal_value} - Description: {description} - Dimension: {dimension}")
+            print(f"Register {i+1} ({channel_id}): {lreal_value} - Description: {description} - Dimension: {dimension}")
     else:
         # For other types (e.g., FLOAT)
         # Combine registers and convert to a floating-point number
-        if len(registers) > i + 1:  # Check if there's a next register
-            reg1 = registers[i]
-            reg2 = registers[i + 1]
+        if len(registers_data) > i + 1:  # Check if there's a next register
+            reg1 = registers_data[i]
+            reg2 = registers_data[i + 1]
             combined = (reg2 << 16) | reg1
             float_value = struct.unpack('>f', struct.pack('>I', combined))[0]
-            print(f"Sensor {i+1} ({variable}): {float_value} - Description: {description} - Dimension: {dimension}")
+            print(f"Register {i+1} ({channel_id}): {float_value} - Description: {description} - Dimension: {dimension}")
 
 # Disconnect from the Modbus server
 client.close()
