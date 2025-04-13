@@ -13,7 +13,6 @@ parent_dir = os.path.dirname(script_dir)
 file_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
 
 # Load the Excel file
-# Make sure to convert non-numeric scale values to NaN, so they default to 1.0 later
 df = pd.read_excel(file_path, engine='openpyxl')
 df['Scale'] = pd.to_numeric(df['Scale'], errors='coerce')
 
@@ -21,19 +20,27 @@ df['Scale'] = pd.to_numeric(df['Scale'], errors='coerce')
 client = ModbusTcpClient('10.20.16.100', port=502)
 client.connect()
 
+# Calculate how many registers we need to read based on the Excel file
+max_address = df['Address'].max()
+registers_needed = max_address + 10  # biztons�g kedv��rt olvassunk t�bbet
+
 # Read Modbus registers in chunks of 100 registers at a time
 registers_data = []
 address = 0
 count = 100  # Number of registers to read per request
 
-while len(registers_data) < 300:  # Read at least 300 registers
-    response = client.read_holding_registers(address=address, count=count)
+while address < registers_needed:
+    read_count = min(count, registers_needed - address)
+    response = client.read_holding_registers(address=address, count=read_count)
     if response.isError():
         print(f"Error reading registers at address {address}")
         break
     else:
         registers_data.extend(response.registers)
     address += count
+
+# Print total number of registers read
+print(f"Total registers read: {len(registers_data)}")
 
 # Iterate through the rows of the Excel sheet
 for _, row in df.iterrows():
@@ -44,12 +51,15 @@ for _, row in df.iterrows():
     dimension = row['Dimension'] if 'Dimension' in row else 'N/A'
     scale = float(row['Scale']) if not pd.isna(row['Scale']) else 1.0
 
+    # Check if the register address is within the available registers
     if reg_address >= len(registers_data):
-        print(f"Address {reg_address} out of range")
+        print(f"{channel_id} - N/A - {description} (out of range)")
         continue
 
+    # Read the register value
     reg_val = registers_data[reg_address]
 
+    # Interpret based on the type
     if type_ == 'BOOL':
         value = bool(reg_val)
     elif type_ == 'INT':
@@ -57,18 +67,18 @@ for _, row in df.iterrows():
     elif type_ == 'BIT':
         value = reg_val & 1
     elif type_ == 'UDINT':
-        if reg_address + 3 < len(registers_data):
-            reg1, reg2, reg3, reg4 = registers_data[reg_address:reg_address+4]
-            value = ((reg4 << 24) | (reg3 << 16) | (reg2 << 8) | reg1) * scale
+        if reg_address + 1 < len(registers_data):
+            reg1, reg2 = registers_data[reg_address], registers_data[reg_address + 1]
+            packed = struct.pack('<HH', reg1, reg2)  # little endian: low word first
+            value = struct.unpack('<I', packed)[0] * scale
         else:
             value = 'N/A'
+
     elif type_ == 'LREAL':
-        if reg_address + 7 < len(registers_data):
-            regs = registers_data[reg_address:reg_address+8]
-            combined = 0
-            for i, r in enumerate(reversed(regs)):
-                combined |= r << (i * 8)
-            value = struct.unpack('>d', struct.pack('>Q', combined))[0] * scale
+        if reg_address + 3 < len(registers_data):
+            reg_block = registers_data[reg_address:reg_address + 4]
+            packed = struct.pack('<HHHH', *reg_block)  # low word first
+            value = struct.unpack('<d', packed)[0] * scale
         else:
             value = 'N/A'
     else:
@@ -79,6 +89,8 @@ for _, row in df.iterrows():
         else:
             value = 'N/A'
 
-    print(f"Address {reg_address} ({channel_id}): {value} - Description: {description} - Dimension: {dimension}")
+    # Print the output without the address
+    print(f"{channel_id} - {value} - {description}")
 
+# Close the connection to the Modbus server
 client.close()
