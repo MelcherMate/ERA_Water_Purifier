@@ -1,94 +1,103 @@
-import pandas as pd
-from pymodbus.client import ModbusTcpClient
-import struct
 import os
 import time
+import struct
+import pandas as pd
+import sqlite3
+from pymodbus.client import ModbusTcpClient
 
-# Get the parent directory of the current script (PLC folder)
+# --- Configuration ---
+MODBUS_HOST = '10.20.16.100'
+MODBUS_PORT = 502
+READ_INTERVAL = 5  # Reading the data in every 5 sec
+
+# Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
+excel_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
+sqlite_path = os.path.join(parent_dir, 'data', 'modbus_data.sqlite')
 
-# Define the Excel file's relative path
-file_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
+# --- Setup local SQLite ---
+os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
+sqlite_conn = sqlite3.connect(sqlite_path)
+sqlite_cursor = sqlite_conn.cursor()
+sqlite_cursor.execute(
+    '''
+    CREATE TABLE IF NOT EXISTS readings (
+        ts TEXT,
+        channel_id TEXT,
+        value REAL,
+        description TEXT,
+        dimension TEXT
+    )
+    '''
+)
+sqlite_conn.commit()
 
-# Load the Excel file
-df = pd.read_excel(file_path, engine='openpyxl')
+# --- Load Excel definitions ---
+df = pd.read_excel(excel_path, engine='openpyxl')
 df['Scale'] = pd.to_numeric(df['Scale'], errors='coerce')
 
-# Connect to the Modbus server
-client = ModbusTcpClient('10.20.16.100', port=502)
+# --- Connect Modbus ---
+client = ModbusTcpClient(MODBUS_HOST, port=MODBUS_PORT)
 client.connect()
 
-# Calculate how many registers we need to read based on the Excel file
-max_address = df['Address'].max()
-registers_needed = max_address + 10
-
+# --- Main loop ---
 try:
     while True:
-        # Read Modbus registers in chunks of 100 registers at a time
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        # Read Modbus registers
         registers_data = []
+        max_address = int(df['Address'].max()) + 10
         address = 0
-        count = 100
-
-        while address < registers_needed:
-            read_count = min(count, registers_needed - address)
-            response = client.read_holding_registers(address=address, count=read_count)
-            if response.isError():
-                print(f"Error reading registers at address {address}")
+        chunk = 100
+        while address < max_address:
+            count = min(chunk, max_address - address)
+            resp = client.read_holding_registers(address=address, count=count)
+            if resp.isError():
+                print(f"Error reading registers at {address}")
                 break
-            else:
-                registers_data.extend(response.registers)
-            address += count
+            registers_data.extend(resp.registers)
+            address += chunk
 
-        print(f"\n--- New Read at {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
-        # Iterate through the rows of the Excel sheet
+        # Save to local SQLite
         for _, row in df.iterrows():
-            reg_address = int(row['Address'])
-            channel_id = row['channel_id']
-            type_ = row['Type']
-            description = row['Description']
-            dimension = row['Dimension'] if 'Dimension' in row else 'N/A'
+            addr = int(row['Address'])
+            cid = row['channel_id']
+            typ = row['Type']
+            desc = row['Description']
+            dim = row.get('Dimension', 'N/A')
             scale = float(row['Scale']) if not pd.isna(row['Scale']) else 1.0
 
-            if reg_address >= len(registers_data):
-                print(f"{channel_id} - N/A - {description} (out of range)")
+            # Value decoding
+            if typ == 'BOOL':
+                val = bool(registers_data[addr])
+            elif typ == 'INT':
+                val = registers_data[addr]
+            elif typ == 'BIT':
+                val = registers_data[addr] & 1
+            elif typ == 'UDINT' and addr+1 < len(registers_data):
+                r1, r2 = registers_data[addr], registers_data[addr+1]
+                val = struct.unpack('<I', struct.pack('<HH', r1, r2))[0] * scale
+            elif typ == 'LREAL' and addr+3 < len(registers_data):
+                block = registers_data[addr:addr+4]
+                val = struct.unpack('<d', struct.pack('<HHHH', *block))[0] * scale
+            elif addr+1 < len(registers_data):
+                r1, r2 = registers_data[addr], registers_data[addr+1]
+                combined = (r2 << 16) | r1
+                val = struct.unpack('>f', struct.pack('>I', combined))[0] * scale
+            else:
                 continue
 
-            reg_val = registers_data[reg_address]
+            sqlite_cursor.execute(
+                'INSERT INTO readings (ts, channel_id, value, description, dimension) VALUES (?, ?, ?, ?, ?)',
+                (timestamp, cid, val, desc, dim)
+            )
+        sqlite_conn.commit()
 
-            if type_ == 'BOOL':
-                value = bool(reg_val)
-            elif type_ == 'INT':
-                value = reg_val
-            elif type_ == 'BIT':
-                value = reg_val & 1
-            elif type_ == 'UDINT':
-                if reg_address + 1 < len(registers_data):
-                    reg1, reg2 = registers_data[reg_address], registers_data[reg_address + 1]
-                    packed = struct.pack('<HH', reg1, reg2)
-                    value = struct.unpack('<I', packed)[0] * scale
-                else:
-                    value = 'N/A'
-            elif type_ == 'LREAL':
-                if reg_address + 3 < len(registers_data):
-                    reg_block = registers_data[reg_address:reg_address + 4]
-                    packed = struct.pack('<HHHH', *reg_block)
-                    value = struct.unpack('<d', packed)[0] * scale
-                else:
-                    value = 'N/A'
-            else:
-                if reg_address + 1 < len(registers_data):
-                    reg1, reg2 = registers_data[reg_address], registers_data[reg_address + 1]
-                    combined = (reg2 << 16) | reg1
-                    value = struct.unpack('>f', struct.pack('>I', combined))[0] * scale
-                else:
-                    value = 'N/A'
-
-            print(f"{channel_id} - {value} - {description}")
-
-        time.sleep(5)
-
+        print(f"Local save complete at {timestamp}")
+        time.sleep(READ_INTERVAL)
 except KeyboardInterrupt:
-    print("\nStop modbus reading...")
+    print("Stopped by user.")
 finally:
     client.close()
+    sqlite_conn.close()
