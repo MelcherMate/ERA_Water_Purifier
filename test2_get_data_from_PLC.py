@@ -3,17 +3,17 @@ from pymodbus.client import ModbusTcpClient
 import struct
 import os
 
-# Get the parent directory of the current script (PLC folder)
+# Define the relative path to the Excel file
+file_path = 'RegisterList/PanelKOVK_KommRef.xlsx'
+
+# Get the directory of the current script
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Go one level up to reach the parent directory
-parent_dir = os.path.dirname(script_dir)
-
-# Define the Excel file's relative path (it's inside the RegisterList folder)
-file_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
+# Construct the absolute path by joining the script directory and the relative path
+absolute_file_path = os.path.join(script_dir, file_path)
 
 # Load the Excel file
-df = pd.read_excel(file_path, engine='openpyxl')
+df = pd.read_excel(absolute_file_path, engine='openpyxl')
 
 # Connect to the Modbus server
 client = ModbusTcpClient('10.20.16.100', port=502)
