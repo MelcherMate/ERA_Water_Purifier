@@ -8,7 +8,7 @@ from pymodbus.client import ModbusTcpClient
 # --- Configuration ---
 MODBUS_HOST = '10.20.16.100'
 MODBUS_PORT = 502
-READ_INTERVAL = 5  # Reading the data in every 5 sec
+READ_INTERVAL = 60  # Reading the data in every 60 sec
 
 # Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
