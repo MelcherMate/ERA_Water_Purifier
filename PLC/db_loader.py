@@ -2,136 +2,138 @@ import psycopg2
 import pandas as pd
 import sqlite3
 import time
+from tqdm import tqdm
 
 # --- Configuration ---
 SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data.sqlite'
-DEVICE_ID = 'aa4659f5-47cf-41a2-9a9e-73897609704c'
-TARGET_CHANNELS = [
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ42_10M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ43_11M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ44_12M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.H_13M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.M80_20M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.D23_21M_RUNT',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL',
-    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL',
-]
-POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432"
+SHORT_NAME = 'OT001'
+POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
 
-# --- Functions ---
-def connect_to_timescale(timeout=10):
-    """
-    Establish a connection to the TimescaleDB with a timeout.
-    """
-    start = time.time()
+# --- Database Helpers ---
+def connect_to_timescale():
     while True:
         try:
             conn = psycopg2.connect(POSTGRES_URL)
             print("Connected to TimescaleDB successfully.")
             return conn
         except Exception as e:
-            if time.time() - start > timeout:
-                print(f"Error connecting to TimescaleDB after {timeout} seconds: {e}")
-                return None
-            time.sleep(1)
+            print(f"Error connecting to TimescaleDB. Retrying in 5 seconds: {e}")
+            time.sleep(5)
 
-
-def read_local_data(sqlite_path: str) -> pd.DataFrame:
-    """
-    Reads ts, channel_id, and value from local SQLite 'readings' table.
-    """
-    try:
-        conn = sqlite3.connect(sqlite_path)
-        df = pd.read_sql_query(
-            "SELECT ts, channel_id, value FROM readings;", conn
-        )
-        conn.close()
-        print(f"Read {len(df)} rows from local database.")
-        return df
-    except Exception as e:
-        print(f"Failed to load data from local database: {e}")
-        return pd.DataFrame(columns=['ts', 'channel_id', 'value'])
-
-
-def fetch_channel_mappings(conn) -> dict:
-    """
-    Fetch mapping from channel name (channel_id) to TimescaleDB channel ID (id).
-    """
+def get_device_id_from_shortname(conn, short_name: str) -> str:
     try:
         with conn.cursor() as cur:
-            sql = """
+            cur.execute("SELECT id FROM hardware WHERE short_name = %s", (short_name,))
+            result = cur.fetchone()
+            return result[0] if result else None
+    except Exception as e:
+        print(f"Error fetching device_id: {e}")
+        return None
+
+def fetch_channel_mappings(conn, device_id: str) -> dict:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
                 SELECT id, name
                 FROM channels
-                WHERE "device_id" = %s
-                AND name = ANY(%s)
-            """
-            cur.execute(sql, (DEVICE_ID, TARGET_CHANNELS))
-            results = cur.fetchall()
-            mapping = {name: id_ for id_, name in results}
-            print(f"Fetched {len(mapping)} channel mappings.")
-            return mapping
+                WHERE device_id = %s
+            """, (device_id,))
+            return {name: id_ for id_, name in cur.fetchall()}
     except Exception as e:
         print(f"Error fetching channel mappings: {e}")
         return {}
 
+def get_latest_timestamps(conn, channel_mapping: dict) -> dict:
+    latest = {}
+    try:
+        with conn.cursor() as cur:
+            for name, ch_id in tqdm(channel_mapping.items(), desc="Fetching latest timestamps"):
+                cur.execute("SELECT MAX(time) FROM measurements WHERE channel_id = %s", (ch_id,))
+                result = cur.fetchone()
+                latest[name] = pd.Timestamp(result[0], tz=None) if result and result[0] else pd.Timestamp.min
+        return latest
+    except Exception as e:
+        print(f"Error fetching latest timestamps: {e}")
+        return {name: pd.Timestamp.min for name in channel_mapping.keys()}
 
-def prepare_delta_records(df: pd.DataFrame, channel_mapping: dict) -> list:
-    """
-    Prepares delta (value difference) records for uploading.
-    """
-    if df.empty or not channel_mapping:
+# --- Local Data Handling ---
+def read_local_data(sqlite_path: str) -> pd.DataFrame:
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        df = pd.read_sql_query("SELECT ts, channel_id, value FROM readings", conn)
+        conn.close()
+        print(f"Read {len(df)} rows from local database.")
+        return df
+    except Exception as e:
+        print(f"Failed to read local SQLite data: {e}")
+        return pd.DataFrame(columns=['ts', 'channel_id', 'value'])
+
+def filter_new_data(df: pd.DataFrame, latest_ts: dict) -> pd.DataFrame:
+    df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
+    filtered = []
+    for channel, group in tqdm(df.groupby('channel_id'), desc="Filtering new data"):
+        limit = latest_ts.get(channel, pd.Timestamp.min)
+        if limit.tzinfo:
+            limit = limit.tz_localize(None)
+        filtered_group = group[group['ts'] > limit]
+        filtered.append(filtered_group)
+    return pd.concat(filtered) if filtered else pd.DataFrame(columns=['ts', 'channel_id', 'value'])
+
+# --- Upload ---
+def prepare_upload_records(df: pd.DataFrame, channel_mapping: dict) -> list:
+    if df.empty:
         return []
+    df = df[df['channel_id'].isin(channel_mapping.keys())].copy()
+    df['ts'] = pd.to_datetime(df['ts'])
+    df_sorted = df.sort_values(['channel_id', 'ts'])
 
-    # Filter only needed channels and create a copy to avoid SettingWithCopyWarning
-    df_filtered = df[df['channel_id'].isin(channel_mapping.keys())].copy()
-    if df_filtered.empty:
-        print("No matching tags found in local data.")
-        return []
-
-    # Convert timestamp column on the copy
-    df_filtered.loc[:, 'ts'] = pd.to_datetime(df_filtered['ts'])
-    df_sorted = df_filtered.sort_values(['channel_id', 'ts'])
-
-    delta_records = []
-
-    for channel_id, group in df_sorted.groupby('channel_id'):
-        group = group.sort_values('ts').copy()  # explicit copy
-        group.loc[:, 'delta'] = group['value'].diff()
-        group = group.dropna(subset=['delta'])
-
-        for _, row in group.iterrows():
-            delta_records.append(
-                (
-                    row['ts'].to_pydatetime(),
-                    channel_mapping[channel_id],
-                    float(row['delta'])
-                )
-            )
-
-    print(f"Prepared {len(delta_records)} delta records.")
-    return delta_records
-
+    upload_records = []
+    for _, row in df_sorted.iterrows():
+        upload_records.append((
+            row['ts'].to_pydatetime(),
+            channel_mapping[row['channel_id']],
+            float(row['value'])
+        ))
+    print(f"Prepared {len(upload_records)} records for upload.")
+    return upload_records
 
 def upload_records(conn, records: list):
-    """
-    Uploads prepared delta records to the TimescaleDB measurements table.
-    """
     if not records:
         print("No records to upload.")
         return
-
-    insert_sql = (
-        'INSERT INTO measurements (time, channel_id, value) VALUES (%s, %s, %s)'
-    )
-
+    insert_sql = """
+        INSERT INTO measurements (time, channel_id, value)
+        VALUES (%s, %s, %s)
+        ON CONFLICT DO NOTHING
+    """
     try:
         with conn.cursor() as cur:
-            cur.executemany(insert_sql, records)
+            for record in tqdm(records, desc="Uploading to Timescale"):
+                cur.execute(insert_sql, record)
         conn.commit()
         print(f"Uploaded {len(records)} records to TimescaleDB.")
     except Exception as e:
-        print(f"Error uploading records: {e}")
+        print(f"Failed to upload records: {e}")
 
+# --- Cleanup local database ---
+def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: dict):
+    if not records:
+        return
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        cur = conn.cursor()
+        for ts, ch_id, _ in tqdm(records, desc="Deleting uploaded records"):
+            channel_name = [k for k, v in channel_id_to_name.items() if v == ch_id]
+            if channel_name:
+                cur.execute(
+                    "DELETE FROM readings WHERE ts = ? AND channel_id = ?",
+                    (ts.strftime('%Y-%m-%d %H:%M:%S'), channel_name[0])
+                )
+        conn.commit()
+        conn.close()
+        print("Deleted uploaded records from SQLite.")
+    except Exception as e:
+        print(f"Failed to delete from local database: {e}")
 
 # --- Main ---
 if __name__ == '__main__':
@@ -139,11 +141,21 @@ if __name__ == '__main__':
 
     conn_ts = connect_to_timescale()
     if conn_ts:
-        channel_mapping = fetch_channel_mappings(conn_ts)
-        missing = set(TARGET_CHANNELS) - set(channel_mapping.keys())
-        for m in missing:
-            print(f"Warning: {m} not found in channel mappings, skipping.")
+        device_id = get_device_id_from_shortname(conn_ts, SHORT_NAME)
+        if not device_id:
+            print("Device ID not found, exiting.")
+            exit(1)
 
-        delta_records = prepare_delta_records(df_local, channel_mapping)
-        upload_records(conn_ts, delta_records)
+        channel_mapping = fetch_channel_mappings(conn_ts, device_id)
+        if not channel_mapping:
+            print("No channel mappings found, exiting.")
+            exit(1)
+
+        latest_ts = get_latest_timestamps(conn_ts, channel_mapping)
+        df_new = filter_new_data(df_local, latest_ts)
+        upload_data = prepare_upload_records(df_new, channel_mapping)
+
+        upload_records(conn_ts, upload_data)
+        delete_uploaded_data(SQLITE_PATH, upload_data, channel_mapping)
+
         conn_ts.close()
