@@ -18,7 +18,8 @@ sqlite_path = os.path.join(parent_dir, 'data', 'modbus_data_from_01_07_2025.sqli
 
 # --- Setup local SQLite ---
 os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
-sqlite_conn = sqlite3.connect(sqlite_path)
+sqlite_conn = sqlite3.connect(sqlite_path, timeout=30)
+
 sqlite_cursor = sqlite_conn.cursor()
 sqlite_cursor.execute(
     '''
@@ -47,7 +48,7 @@ try:
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         # Read Modbus registers
         registers_data = []
-        max_address = int(df['Address'].max()) + 10
+        max_address = int(df['Address'].max()) + 20
         address = 0
         chunk = 100
         while address < max_address:

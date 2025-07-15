@@ -76,7 +76,8 @@ def get_latest_timestamps(conn, channel_mapping: dict) -> dict:
 # --- Local Data Handling ---
 def read_local_data(sqlite_path: str) -> pd.DataFrame:
     try:
-        conn = sqlite3.connect(sqlite_path)
+        conn = sqlite3.connect(sqlite_path, timeout=30)
+
         df = pd.read_sql_query("SELECT ts, channel_id, value FROM readings", conn)
         conn.close()
         df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
@@ -145,7 +146,8 @@ def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: di
     if not records:
         return
     try:
-        conn = sqlite3.connect(sqlite_path)
+        conn = sqlite3.connect(sqlite_path, timeout=30)
+
         cur = conn.cursor()
         for ts, ch_id, _ in tqdm(records, desc="Deleting uploaded records"):
             channel_name = [k for k, v in channel_id_to_name.items() if v == ch_id]
