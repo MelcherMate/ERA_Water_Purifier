@@ -3,11 +3,28 @@ import pandas as pd
 import sqlite3
 import time
 from tqdm import tqdm
+from datetime import datetime, timedelta
 
-# --- Configuration ---
-SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data.sqlite'
+# --- Configuration --- #
+SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data_from_01_07_2025.sqlite'
 SHORT_NAME = 'OT001'
-POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
+
+# - Panelko - #
+#POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
+
+# - DEV - #
+POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
+
+TARGET_CHANNELS = [
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ42_10M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ43_11M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ44_12M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.H_13M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.M80_20M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.D23_21M_RUNT',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL',
+]
 
 # --- Database Helpers ---
 def connect_to_timescale():
@@ -36,8 +53,8 @@ def fetch_channel_mappings(conn, device_id: str) -> dict:
             cur.execute("""
                 SELECT id, name
                 FROM channels
-                WHERE device_id = %s
-            """, (device_id,))
+                WHERE device_id = %s AND name = ANY(%s)
+            """, (device_id, TARGET_CHANNELS))
             return {name: id_ for id_, name in cur.fetchall()}
     except Exception as e:
         print(f"Error fetching channel mappings: {e}")
@@ -62,14 +79,22 @@ def read_local_data(sqlite_path: str) -> pd.DataFrame:
         conn = sqlite3.connect(sqlite_path)
         df = pd.read_sql_query("SELECT ts, channel_id, value FROM readings", conn)
         conn.close()
-        print(f"Read {len(df)} rows from local database.")
+        df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
+
+        # Sz?r�s az elm�lt 3 napra
+        three_days_ago = datetime.now() - timedelta(days=3)
+        df = df[df['ts'] >= three_days_ago]
+
+        # Csak a TARGET_CHANNELS csatorn�kra sz?r�s
+        df = df[df['channel_id'].isin(TARGET_CHANNELS)]
+
+        print(f"Read {len(df)} rows from local database (filtered to last 3 days and target channels).")
         return df
     except Exception as e:
         print(f"Failed to read local SQLite data: {e}")
         return pd.DataFrame(columns=['ts', 'channel_id', 'value'])
 
 def filter_new_data(df: pd.DataFrame, latest_ts: dict) -> pd.DataFrame:
-    df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
     filtered = []
     for channel, group in tqdm(df.groupby('channel_id'), desc="Filtering new data"):
         limit = latest_ts.get(channel, pd.Timestamp.min)
@@ -135,27 +160,37 @@ def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: di
     except Exception as e:
         print(f"Failed to delete from local database: {e}")
 
-# --- Main ---
+# --- Main Loop ---
 if __name__ == '__main__':
-    df_local = read_local_data(SQLITE_PATH)
-
     conn_ts = connect_to_timescale()
-    if conn_ts:
-        device_id = get_device_id_from_shortname(conn_ts, SHORT_NAME)
-        if not device_id:
-            print("Device ID not found, exiting.")
-            exit(1)
+    if not conn_ts:
+        print("Unable to connect to TimescaleDB. Exiting.")
+        exit(1)
 
-        channel_mapping = fetch_channel_mappings(conn_ts, device_id)
-        if not channel_mapping:
-            print("No channel mappings found, exiting.")
-            exit(1)
+    device_id = get_device_id_from_shortname(conn_ts, SHORT_NAME)
+    if not device_id:
+        print("Device ID not found. Exiting.")
+        exit(1)
 
-        latest_ts = get_latest_timestamps(conn_ts, channel_mapping)
-        df_new = filter_new_data(df_local, latest_ts)
-        upload_data = prepare_upload_records(df_new, channel_mapping)
+    channel_mapping = fetch_channel_mappings(conn_ts, device_id)
+    if not channel_mapping:
+        print("No channel mappings found. Exiting.")
+        exit(1)
 
-        upload_records(conn_ts, upload_data)
-        delete_uploaded_data(SQLITE_PATH, upload_data, channel_mapping)
+    print("Starting continuous upload loop. Press Ctrl+C to stop.")
+    try:
+        while True:
+            df_local = read_local_data(SQLITE_PATH)
+            latest_ts = get_latest_timestamps(conn_ts, channel_mapping)
+            df_new = filter_new_data(df_local, latest_ts)
+            upload_data = prepare_upload_records(df_new, channel_mapping)
+            upload_records(conn_ts, upload_data)
+            delete_uploaded_data(SQLITE_PATH, upload_data, channel_mapping)
 
+            print("Sleeping for 60 seconds...\n")
+            time.sleep(60)
+
+    except KeyboardInterrupt:
+        print("Stopped by user.")
+    finally:
         conn_ts.close()

@@ -8,13 +8,13 @@ from pymodbus.client import ModbusTcpClient
 # --- Configuration ---
 MODBUS_HOST = '10.20.16.100'
 MODBUS_PORT = 502
-READ_INTERVAL = 60  # Reading the data in every 60 sec
+READ_INTERVAL = 1800  # Reading the data in every 60 sec
 
 # Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 excel_path = os.path.join(parent_dir, 'RegisterList', 'PanelKOVK_KommRef.xlsx')
-sqlite_path = os.path.join(parent_dir, 'data', 'modbus_data.sqlite')
+sqlite_path = os.path.join(parent_dir, 'data', 'modbus_data_from_01_07_2025.sqlite')
 
 # --- Setup local SQLite ---
 os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
