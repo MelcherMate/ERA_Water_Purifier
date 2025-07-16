@@ -10,10 +10,10 @@ from psycopg2.extras import execute_values
 SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data.sqlite'
 SHORT_NAME = 'OT001'
 # - Panelko - #
-POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
+#POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
 
 # - DEV - #
-#POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
+POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
 
 TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ42_10M_RUNT',
@@ -23,6 +23,7 @@ TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.M80_20M_RUNT',
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.D23_21M_RUNT',
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL',
+    'PLC_VK.Application.GVL_HMI.rdata.daq.A71_90M1_VOL',
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL',
     'PLC_VK.Application.GVL_HMI.data.z50',
     'PLC_VK.Application.GVL_HMI.data.z51',
