@@ -4,16 +4,18 @@ import sqlite3
 import time
 from tqdm import tqdm
 from datetime import datetime, timedelta
+from psycopg2.extras import execute_values
+
 
 # --- Configuration --- #
 SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data_from_01_07_2025.sqlite'
 SHORT_NAME = 'OT001'
 
 # - Panelko - #
-#POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
+POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
 
 # - DEV - #
-POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
+#POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
 
 TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ42_10M_RUNT',
@@ -24,6 +26,8 @@ TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.D23_21M_RUNT',
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL',
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL',
+    'PLC_VK.Application.GVL_HMI.data.z50',
+    'PLC_VK.Application.GVL_HMI.data.z51',
 ]
 
 # --- Database Helpers ---
@@ -51,11 +55,13 @@ def fetch_channel_mappings(conn, device_id: str) -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, name
-                FROM channels
-                WHERE device_id = %s AND name = ANY(%s)
+                SELECT c.id, tag
+                FROM channels c,
+                unnest(c.tags) AS tag
+                WHERE c.device_id = %s AND tag = ANY(%s)
             """, (device_id, TARGET_CHANNELS))
-            return {name: id_ for id_, name in cur.fetchall()}
+            result = cur.fetchall()
+            return {tag: ch_id for ch_id, tag in result}
     except Exception as e:
         print(f"Error fetching channel mappings: {e}")
         return {}
@@ -82,18 +88,15 @@ def read_local_data(sqlite_path: str) -> pd.DataFrame:
         conn.close()
         df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
 
-        # Sz?r�s az elm�lt 3 napra
-        three_days_ago = datetime.now() - timedelta(days=3)
-        df = df[df['ts'] >= three_days_ago]
-
         # Csak a TARGET_CHANNELS csatorn�kra sz?r�s
         df = df[df['channel_id'].isin(TARGET_CHANNELS)]
 
-        print(f"Read {len(df)} rows from local database (filtered to last 3 days and target channels).")
+        print(f"Read {len(df)} rows from local database (filtered to target channels).")
         return df
     except Exception as e:
         print(f"Failed to read local SQLite data: {e}")
         return pd.DataFrame(columns=['ts', 'channel_id', 'value'])
+
 
 def filter_new_data(df: pd.DataFrame, latest_ts: dict) -> pd.DataFrame:
     filtered = []
@@ -123,23 +126,24 @@ def prepare_upload_records(df: pd.DataFrame, channel_mapping: dict) -> list:
     print(f"Prepared {len(upload_records)} records for upload.")
     return upload_records
 
-def upload_records(conn, records: list):
+def upload_records(conn, records):
     if not records:
         print("No records to upload.")
         return
+
     insert_sql = """
         INSERT INTO measurements (time, channel_id, value)
-        VALUES (%s, %s, %s)
+        VALUES %s
         ON CONFLICT DO NOTHING
     """
     try:
         with conn.cursor() as cur:
-            for record in tqdm(records, desc="Uploading to Timescale"):
-                cur.execute(insert_sql, record)
+            execute_values(cur, insert_sql, records)
         conn.commit()
         print(f"Uploaded {len(records)} records to TimescaleDB.")
     except Exception as e:
         print(f"Failed to upload records: {e}")
+
 
 # --- Cleanup local database ---
 def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: dict):
