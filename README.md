@@ -100,5 +100,21 @@ This project uses **two main systemd service files**:
    - List all running services:
    ```bash
    systemctl list-units --type=service --state=running
-- List all services (running or inactive):
-
+   ```
+   - List all services (running or inactive):
+   ```bash
+   systemctl list-units --type=service
+   ```
+2. **Edit a service file**
+   ```bash
+   sudo nano /etc/systemd/system/<file_name>.service
+   ```
+   - After editing, save with Ctrl+O, press Enter, then exit with Ctrl+X.
+   - Reload systemd and restart the service:
+   ```bash
+   sudo systemctl daemon-reloa
+   ```
+   - or
+   ```bash
+   sudo systemctl restart <file_name>.service
+   ```
