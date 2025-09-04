@@ -96,7 +96,9 @@ This project uses **two main systemd service files**:
 ### 2. `modbus_loop.service`
 - Previously handled one-shot Modbus reads and stored them in SQLite. Not needed if `sync_timescale` is running.
 
-1. **View services**  
+### Managing Services
+
+1. **View services** 
    - List all running services:
    ```bash
    systemctl list-units --type=service --state=running
