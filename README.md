@@ -88,34 +88,17 @@ The deltas are stored as separate channels in TimescaleDB.
 
 ## 🛠 Service Files Overview
 
-This project uses **two main systemd service files** to automate the data collection and upload processes:
+This project uses **two main systemd service files**:
 
 ### 1. `sync_timescale.service`
+- Continuously reads data from the Modbus-connected PLC, stores it in SQLite, calculates delta values, and uploads everything to TimescaleDB.
 
-- **What it does:** Continuously reads data from the Modbus-connected PLC (via Python scripts), stores it locally in SQLite, calculates delta values, and uploads everything to TimescaleDB.  
-- **Quick edit tip:**  
-  1. Open the file:  
-     ```bash
-     sudo nano /etc/systemd/system/sync_timescale.service
-     ```  
-  2. Change `ExecStart` or other settings.  
-  3. Save (`Ctrl+O`) and exit (`Ctrl+X`).  
-  4. Reload and restart:  
-     ```bash
-     sudo systemctl daemon-reload
-     sudo systemctl restart sync_timescale.service
-     ```
+### 2. `modbus_loop.service`
+- Previously handled one-shot Modbus reads and stored them in SQLite. Not needed if `sync_timescale` is running.
 
-### 2. `modbus_leader.service` *(deprecated / legacy)*
+1. **View services**  
+   - List all running services:
+   ```bash
+   systemctl list-units --type=service --state=running
+- List all services (running or inactive):
 
-- **What it did:** Previously handled one-shot Modbus reads and stored them in SQLite. No longer needed if `sync_timescale` is running.  
-- **Quick cleanup:**  
-  ```bash
-  sudo systemctl stop modbus_leader.service
-  sudo systemctl disable modbus_leader.service
-  sudo rm /etc/systemd/system/modbus_leader.service
-  sudo systemctl daemon-reload
-
-Tip: Always check the logs for any service after editing or restarting:
-```bash
-  sudo journalctl -u sync_timescale.service -f
