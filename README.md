@@ -117,4 +117,5 @@ This project uses **two main systemd service files** to automate the data collec
   sudo systemctl daemon-reload
 
 Tip: Always check the logs for any service after editing or restarting:
+```bash
   sudo journalctl -u sync_timescale.service -f
