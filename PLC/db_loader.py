@@ -31,6 +31,13 @@ TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.data.z51',
 ]
 
+# --- Additional computed delta channels ---
+DELTA_CHANNELS = {
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL': 'PLC_VK.Application.GVL_HMI.rdata.daq_delta.A70_90M2_VOL',
+    'PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL': 'PLC_VK.Application.GVL_HMI.rdata.daq_delta.A71_90M1_VOL',
+}
+
+
 # --- Database Helpers ---
 def connect_to_timescale():
     while True:
@@ -60,7 +67,7 @@ def fetch_channel_mappings(conn, device_id: str) -> dict:
                 FROM channels c,
                 unnest(c.tags) AS tag
                 WHERE c.device_id = %s AND tag = ANY(%s)
-            """, (device_id, TARGET_CHANNELS))
+            """, (device_id, TARGET_CHANNELS + list(DELTA_CHANNELS.values())))
             result = cur.fetchall()
             return {tag: ch_id for ch_id, tag in result}
     except Exception as e:
@@ -89,7 +96,7 @@ def read_local_data(sqlite_path: str) -> pd.DataFrame:
         conn.close()
         df['ts'] = pd.to_datetime(df['ts']).dt.tz_localize(None)
 
-        # Csak a TARGET_CHANNELS csatorn�kra sz?r�s
+        # Filter only the target raw channels
         df = df[df['channel_id'].isin(TARGET_CHANNELS)]
 
         print(f"Read {len(df)} rows from local database (filtered to target channels).")
@@ -108,6 +115,21 @@ def filter_new_data(df: pd.DataFrame, latest_ts: dict) -> pd.DataFrame:
         filtered_group = group[group['ts'] > limit]
         filtered.append(filtered_group)
     return pd.concat(filtered) if filtered else pd.DataFrame(columns=['ts', 'channel_id', 'value'])
+
+
+def compute_deltas(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute deltas for specific raw channels and return them as new rows."""
+    deltas = []
+    for raw_channel, delta_channel in DELTA_CHANNELS.items():
+        group = df[df['channel_id'] == raw_channel].sort_values('ts')
+        group['delta'] = group['value'].diff()   # current - previous
+        group = group.dropna(subset=['delta'])
+        group = group[group['delta'] >= 0]  # discard negative deltas
+        deltas.append(
+            group[['ts', 'delta']].rename(columns={'delta': 'value'}).assign(channel_id=delta_channel)
+        )
+    return pd.concat(deltas) if deltas else pd.DataFrame(columns=['ts', 'channel_id', 'value'])
+
 
 # --- Upload ---
 def prepare_upload_records(df: pd.DataFrame, channel_mapping: dict) -> list:
@@ -156,7 +178,7 @@ def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: di
         cur = conn.cursor()
         for ts, ch_id, _ in tqdm(records, desc="Deleting uploaded records"):
             channel_name = [k for k, v in channel_id_to_name.items() if v == ch_id]
-            if channel_name:
+            if channel_name and channel_name[0] in TARGET_CHANNELS:  # delete only raw channels
                 cur.execute(
                     "DELETE FROM readings WHERE ts = ? AND channel_id = ?",
                     (ts.strftime('%Y-%m-%d %H:%M:%S'), channel_name[0])
@@ -166,6 +188,7 @@ def delete_uploaded_data(sqlite_path: str, records: list, channel_id_to_name: di
         print("Deleted uploaded records from SQLite.")
     except Exception as e:
         print(f"Failed to delete from local database: {e}")
+
 
 # --- Main Loop ---
 if __name__ == '__main__':
@@ -190,7 +213,12 @@ if __name__ == '__main__':
             df_local = read_local_data(SQLITE_PATH)
             latest_ts = get_latest_timestamps(conn_ts, channel_mapping)
             df_new = filter_new_data(df_local, latest_ts)
-            upload_data = prepare_upload_records(df_new, channel_mapping)
+
+            # compute delta channels and merge
+            df_deltas = compute_deltas(df_new)
+            df_with_deltas = pd.concat([df_new, df_deltas])
+
+            upload_data = prepare_upload_records(df_with_deltas, channel_mapping)
             upload_records(conn_ts, upload_data)
             delete_uploaded_data(SQLITE_PATH, upload_data, channel_mapping)
 
