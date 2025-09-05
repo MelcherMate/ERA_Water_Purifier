@@ -1,19 +1,18 @@
+import os
 import psycopg2
 import pandas as pd
 import sqlite3
 from tqdm import tqdm
-from datetime import datetime
 from psycopg2.extras import execute_values
+from dotenv import load_dotenv
 
 
 # --- Configuration --- #
-SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data.sqlite'
-SHORT_NAME = 'OT001'
-# - Panelko - #
-#POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
+load_dotenv()
 
-# - DEV - #
-POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
+SQLITE_PATH = os.getenv("SQLITE_PATH")
+SHORT_NAME = os.getenv("SHORT_NAME")
+POSTGRES_URL = os.getenv("POSTGRES_URL")
 
 # Eredeti feltöltendő csatornák
 TARGET_CHANNELS = [

@@ -3,12 +3,15 @@ import time
 import struct
 import pandas as pd
 import sqlite3
+from dotenv import load_dotenv
 from pymodbus.client import ModbusTcpClient
 
 # --- Configuration ---
-MODBUS_HOST = '10.20.16.100'
-MODBUS_PORT = 502
-READ_INTERVAL = 1800  # Reading the data in every 60 sec
+load_dotenv()
+
+MODBUS_HOST = os.getenv("MODBUS_HOST")
+MODBUS_PORT = int(os.getenv("MODBUS_PORT"))
+READ_INTERVAL = int(os.getenv("READ_INTERVAL"))
 
 # Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))

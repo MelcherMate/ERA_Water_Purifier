@@ -1,3 +1,4 @@
+import os
 import psycopg2
 import pandas as pd
 import sqlite3
@@ -5,17 +6,15 @@ import time
 from tqdm import tqdm
 from datetime import datetime, timedelta
 from psycopg2.extras import execute_values
+from dotenv import load_dotenv
 
 
 # --- Configuration --- #
-SQLITE_PATH = '/home/admin/Documents/ERA/data/modbus_data_from_01_07_2025.sqlite'
-SHORT_NAME = 'OT001'
+load_dotenv()
 
-# - Panelko - #
-#POSTGRES_URL = "postgres://panelkoadmin:hFAaTvgD9bT5@rex.panelko.hu:5432/rex_db"
-
-# - DEV - #
-POSTGRES_URL = "postgres://postgres:password@vaphaet.ddns.net:5432/postgres"
+SQLITE_PATH = os.getenv("SQLITE_PATH")
+SHORT_NAME = os.getenv("SHORT_NAME")
+POSTGRES_URL = os.getenv("POSTGRES_URL")
 
 TARGET_CHANNELS = [
     'PLC_VK.Application.GVL_HMI.rdata.daq_raw.SZ42_10M_RUNT',

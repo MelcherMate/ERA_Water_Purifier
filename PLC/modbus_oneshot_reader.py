@@ -1,14 +1,16 @@
-
 import os
-import struct
 import time
+import struct
 import pandas as pd
 import sqlite3
+from dotenv import load_dotenv
 from pymodbus.client import ModbusTcpClient
 
 # --- Configuration ---
-MODBUS_HOST = '10.20.16.100'
-MODBUS_PORT = 502
+load_dotenv()
+
+MODBUS_HOST = os.getenv("MODBUS_HOST")
+MODBUS_PORT = int(os.getenv("MODBUS_PORT"))
 
 # Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))

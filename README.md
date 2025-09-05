@@ -34,6 +34,7 @@ project-root/
 ├── venv/
 ├── .gitignore
 ├── README.mds
+├── .env
 └── requirements.txt
 
 ---
@@ -44,7 +45,7 @@ project-root/
    - Python 3.10+  
    - PostgreSQL + TimescaleDB  
    - SQLite  
-   - PLC accessible via ModbusTCP  
+   - PLC accessible via ModbusTCP
 
 2. **Install Python dependencies**  
 
