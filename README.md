@@ -31,9 +31,10 @@ project-root/
 │ ├── get_sample.py # Decodes modbus data and prints it in console
 │ └── test_connection_to_plc.py # Tests the network between the rPI and the PLC
 │
+├── installer.py # installer for the ERA application *NOT in use after setup*
 ├── venv/
 ├── .gitignore
-├── README.mds
+├── README.md
 ├── .env
 └── requirements.txt
 
