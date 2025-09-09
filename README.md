@@ -67,7 +67,7 @@ When performing a manual installation, you must modify the .env file, which is w
 
 4. **Service file creation**
 
-To enable the Python code to start automatically with the operating system, you need to create two service files: one for modbus_loop.py and one for sync_timescale.py.
+To enable the Python code to start automatically with the operating system, you need to create two service files: one for modbus_loop.py and one for sync_timescale.py. You can see how the service files should look like in the `installer.py` file between row 80 and 120. 
 
 # Delta Calculation
 
