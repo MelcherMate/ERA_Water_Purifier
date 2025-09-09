@@ -42,6 +42,14 @@ project-root/
 
 ## ⚙️ Installation
 
+### Automatic Installation
+
+For automatic installation, you'll need an internet connection and a default Raspberry Pi. Simply run the `installer.py` file and answer the questions.
+
+CAUTION! You must have admin access on the Pi, or it won't work.
+
+### Manual Installation
+
 1. **Requirements**  
    - Python 3.10+  
    - PostgreSQL + TimescaleDB  
@@ -53,6 +61,14 @@ project-root/
 ```bash
 pip install -r requirements.txt
 ```
+3. **.env modification** 
+
+When performing a manual installation, you must modify the .env file, which is where the device's SHORT_NAME is stored.
+
+4. **Service file creation**
+
+To enable the Python code to start automatically with the operating system, you need to create two service files: one for modbus_loop.py and one for sync_timescale.py.
+
 # Delta Calculation
 
 The system automatically calculates consumption deltas for two water meters:
