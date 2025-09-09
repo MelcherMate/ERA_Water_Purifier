@@ -1,3 +1,14 @@
+"""
+* Automated installer for ERA Water Purifier on Raspberry Pi.
+    - Clones or updates the repository.
+    - Sets up a Python virtual environment.
+    - Installs required packages.
+    - Configures environment variables.
+    - Creates systemd services for automatic startup.
+
+* Requires root privileges and internet access.
+"""
+
 #!/usr/bin/env python3
 import os
 import subprocess
