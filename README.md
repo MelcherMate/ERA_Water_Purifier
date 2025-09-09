@@ -65,7 +65,7 @@ project-root/
 
 For automatic installation, you'll need an internet connection and a default Raspberry Pi. Simply run the `installer.py` file and answer the questions.
 
-CAUTION! You must have admin access on the Pi, or it won't work.
+CAUTION! You must have admin access on the Pi, or else it won't work.
 
 ### Manual Installation
 
