@@ -1,3 +1,7 @@
+"""
+Test connection to PLC using Modbus TCP.
+"""
+
 from pymodbus.client import ModbusTcpClient
 
 # Configuration parameters from the email

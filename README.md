@@ -88,22 +88,6 @@ When performing a manual installation, you must modify the .env file, which is w
 
 To enable the Python code to start automatically with the operating system, you need to create two service files: one for modbus_loop.py and one for sync_timescale.py. You can see how the service files should look like in the `installer.py` file between row 80 and 120. 
 
-# Delta Calculation
-
-The system automatically calculates consumption deltas for two water meters:
-
-A70 Raw Water Delta Volume
-Source: PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL
-
-A71 Treated Water Delta Volume
-Source: PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL
-
-**delta = current_value - previous_value**
-
-The deltas are stored as separate channels in TimescaleDB.
-
-
-
 ## 🛠 Service Files Overview
 
 This project uses **two main systemd service files**:

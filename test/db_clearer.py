@@ -1,4 +1,6 @@
 """
+!! WARNING !!
+
 TimescaleDB Measurements Truncate Script
 ----------------------------------------
 

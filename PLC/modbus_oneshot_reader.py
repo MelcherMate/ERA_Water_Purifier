@@ -1,3 +1,16 @@
+"""
+! SIMILAR TO modbus_loop.py, BUT READS DATA ONLY ONCE, NOT IN A CONTINUOUS FLOW!
+
+Reads Modbus registers and saves data to local SQLite database.
+? Features:
+- Reads Modbus registers based on definitions in PanelKOVK_KommRef.xlsx Excel file.
+- Saves readings to a local SQLite database with timestamps.
+- Runs in a continuous loop with a configurable interval.
+- Uses environment variables for configuration.
+- Handles different data types (BOOL, INT, UDINT, LREAL, etc.) and scaling factors.
+- Modular and easy to maintain.
+"""
+
 import os
 import time
 import struct

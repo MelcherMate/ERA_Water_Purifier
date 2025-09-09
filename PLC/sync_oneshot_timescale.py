@@ -1,3 +1,26 @@
+"""
+! SIMILAR TO sync_Timescale.py, BUT UPLOADS DATA IN ONE SHOT, NOT IN A CONTINUOUS FLOW!
+
+Script to synchronize local SQLite data with a remote TimescaleDB instance.
+- Reads data from a local SQLite database.
+- Filters new data based on the latest timestamps in TimescaleDB.
+- Computes additional delta channels.
+- Uploads new data to TimescaleDB.
+- Cleans up uploaded data from the local SQLite database.
+
+#! Delta Calculation
+The system calculates consumption deltas for two water meters:
+
+* A70 Raw Water Delta Volume
+* Source: PLC_VK.Application.GVL_HMI.rdata.daq_raw.A70_90M2_VOL
+* A71 Treated Water Delta Volume
+* Source: PLC_VK.Application.GVL_HMI.rdata.daq_raw.A71_90M1_VOL
+
+? **delta = current_value - previous_value**
+
+The deltas are stored as separate channels in TimescaleDB.
+"""
+
 import os
 import psycopg2
 import pandas as pd
